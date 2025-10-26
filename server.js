@@ -1,36 +1,86 @@
+// --- CARICA VARIABILI D'AMBIENTE ---
+require('dotenv').config(); // ⚠️ aggiunto in cima al file
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const session = require("express-session");
+const passport = require("passport");
+const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static("public"));
+// --- SESSION ---
+app.use(session({
+  secret: process.env.SESSION_SECRET, // usiamo variabile d'ambiente
+  resave: false,
+  saveUninitialized: true
+}));
 
-let users = {}; // utenti connessi e loro canale
+// --- PASSPORT ---
+app.use(passport.initialize());
+app.use(passport.session());
+
+// --- SERIALIZZAZIONE UTENTE ---
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((obj, done) => done(null, obj));
+
+// --- STRATEGIA GOOGLE ---
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,       // variabile d'ambiente
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET, // variabile d'ambiente
+  callbackURL: process.env.CALLBACK_URL        // variabile d'ambiente
+}, (accessToken, refreshToken, profile, done) => {
+  return done(null, profile);
+}));
+
+// --- ROTTE GOOGLE ---
+app.get("/auth/google",
+  passport.authenticate("google", { scope: ["profile", "email"] })
+);
+
+app.get("/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: "/" }),
+  (req, res) => {
+    res.redirect("/"); // Login riuscito
+  }
+);
+
+app.get("/logout", (req, res, next) => {
+  req.logout(function(err) {
+    if (err) return next(err);
+    res.redirect("/");
+  });
+});
+
+app.get("/profile", (req, res) => {
+  res.json(req.user || { loggedIn: false });
+});
+
+// --- STATICI ---
+app.use(express.static(path.join(__dirname, "public")));
+
+// --- CHAT/VOICE LOGIC ---
+let users = {};
 
 io.on("connection", (socket) => {
   console.log("🟢 Utente connesso:", socket.id);
 
-  // Quando un utente sceglie un nome e si unisce al canale vocale
   socket.on("joinVoice", (username) => {
     users[socket.id] = { name: username, channel: "Generale" };
     socket.join("Generale");
 
-    console.log(`🎙️ ${username} è entrato nel canale Generale`);
     io.to("Generale").emit("updateUsers", getUsersInChannel("Generale"));
-
-    // Notifica nuovi utenti per WebRTC
     socket.broadcast.to("Generale").emit("new-user", socket.id);
   });
 
-  // CHAT TESTUALE
   socket.on("chatMessage", (msg) => {
     io.emit("chatMessage", { id: socket.id, msg });
   });
 
-  // --- WebRTC Signaling ---
   socket.on("offer", (data) => {
     io.to(data.target).emit("offer", { sdp: data.sdp, from: socket.id });
   });
@@ -46,7 +96,6 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const user = users[socket.id];
     if (user) {
-      console.log(`🔴 ${user.name} ha lasciato il canale`);
       const channel = user.channel;
       delete users[socket.id];
       io.to(channel).emit("updateUsers", getUsersInChannel(channel));
@@ -61,9 +110,8 @@ function getUsersInChannel(channel) {
     .map(u => u.name);
 }
 
+// --- SERVER ---
 const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server attivo su http://0.0.0.0:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server attivo su http://localhost:${PORT}`);
 });
-
