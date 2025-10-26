@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {
+   "dependencies": {
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-session": "^1.18.2",

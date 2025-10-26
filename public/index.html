@@ -1,52 +1,177 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <title>VoiceChat App</title>
-  <link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8">
+<title>VoiceChat App</title>
+<style>
+  /* Reset e font */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  body, html {
+    font-family: Arial, sans-serif;
+    height: 100%;
+    background-color: #36393f;
+    color: white;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #2f3136;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
+  header h1 {
+    font-size: 1.5em;
+    color: white;
+  }
+  header button {
+    background-color: #7289da;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 3px;
+    color: white;
+    cursor: pointer;
+  }
+  header button:hover {
+    background-color: #5b6eae;
+  }
+
+  /* Layout principale */
+  .container {
+    display: flex;
+    height: calc(100% - 60px); /* header 60px */
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 220px;
+    background-color: #2f3136;
+    padding: 10px;
+    border-right: 1px solid #202225;
+  }
+  .sidebar h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    font-size: 0.9em;
+    color: #b9bbbe;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .channel {
+    padding: 5px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #dcddde;
+    margin-bottom: 3px;
+  }
+  .channel:hover {
+    background-color: #40444b;
+  }
+
+  /* Area principale chat */
+  #chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #202225;
+    border-radius: 5px;
+    padding: 10px;
+    background-color: #2f3136;
+  }
+  #input-area {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  #input-area input {
+    flex: 1;
+    padding: 10px;
+    border-radius: 3px;
+    border: none;
+  }
+  #input-area button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 3px;
+    background-color: #7289da;
+    color: white;
+    cursor: pointer;
+  }
+  #input-area button:hover {
+    background-color: #5b6eae;
+  }
+
+</style>
+<!-- Google Sign-In script -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <h1>🎧 VoiceChat App</h1>
+  <header>
+    <h1>VoiceChat App</h1>
+    <div>
+      <button onclick="window.location.href='/auth/google'">Accedi con Google</button>
+    </div>
+  </header>
 
-  <div id="voice-channel">
-    <h2>Canale vocale: <b>Generale</b></h2>
+  <div class="container">
+    <!-- Sidebar canali -->
+    <div class="sidebar">
+      <h3>Canali testuali</h3>
+      <div class="channel" onclick="joinChannel('Chat generale')">Chat generale</div>
+      <div class="channel" onclick="joinChannel('Annunci')">Annunci</div>
 
-    <!-- 🔐 LOGIN GOOGLE -->
-    <div id="g_id_onload"
-         data-client_id="828831331108-k972muotm69snu0o9hjlsevhj329lo4k.apps.googleusercontent.com"
-         data-callback="handleCredentialResponse">
+      <h3>Canali vocali</h3>
+      <div class="channel" onclick="joinChannel('Generale')">Generale</div>
     </div>
 
-    <div class="g_id_signin"
-         data-type="standard"
-         data-shape="rectangular"
-         data-theme="outline"
-         data-text="signin_with"
-         data-size="large"
-         data-logo_alignment="left">
+    <!-- Area chat -->
+    <div id="chat-area">
+      <div id="messages"></div>
+      <div id="input-area">
+        <input id="msg" placeholder="Scrivi un messaggio...">
+        <button id="send">Invia</button>
+      </div>
     </div>
-
-    <br/>
-
-    <!-- Mostra nome utente dopo login -->
-    <input id="username" placeholder="Nome utente Google" disabled />
-    <button id="joinVoiceBtn" disabled>Unisciti alla vocale</button>
-
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-
-    <h3>Utenti nel canale:</h3>
-    <ul id="userList"></ul>
   </div>
 
-  <hr />
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  let currentChannel = "Chat generale";
 
-  <h2>💬 Chat testuale</h2>
-  <ul id="messages"></ul>
-  <input id="msg" placeholder="Scrivi un messaggio..." autocomplete="off" />
-  <button id="send">Invia</button>
+  function joinChannel(channel) {
+    currentChannel = channel;
+    document.getElementById("messages").innerHTML = "";
+    socket.emit("joinVoice", "Utente"); // puoi cambiare con il nome reale
+  }
 
-  <!-- Socket.io e logica client -->
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
+  document.getElementById("send").onclick = () => {
+    const msg = document.getElementById("msg").value;
+    if(msg) {
+      socket.emit("chatMessage", { msg: msg, channel: currentChannel });
+      document.getElementById("msg").value = "";
+    }
+  };
+
+  socket.on("chatMessage", data => {
+    if(data.channel === currentChannel) {
+      const div = document.createElement("div");
+      div.textContent = data.msg;
+      document.getElementById("messages").appendChild(div);
+      document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+    }
+  });
+</script>
 </body>
 </html>

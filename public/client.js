@@ -1,35 +1,23 @@
 const socket = io();
 
-// Chat
-const input = document.getElementById("msg");
-const sendBtn = document.getElementById("send");
-const messages = document.getElementById("messages");
-
-// Voice channel
-const joinVoiceBtn = document.getElementById("joinVoiceBtn");
-const usernameInput = document.getElementById("username");
-const userList = document.getElementById("userList");
-
-let localStream;
-let peers = {};
+let username = null;
 let joined = false;
-let username = null; // sarà riempito dal login Google
 
-// ---------------- GOOGLE LOGIN ----------------
+// 🔊 Suoni di sistema
+const joinSound = new Audio("/sounds/windows7_startup.mp3");
+const leaveSound = new Audio("/sounds/windows7_shutdown.mp3");
+
+// Quando Google autentica l’utente
 function handleCredentialResponse(response) {
   const data = parseJwt(response.credential);
-  username = data.name; // nome completo account Google
+  username = data.name || "Utente Sconosciuto";
   console.log("✅ Accesso Google:", username);
 
-  // Mostra il nome nell'input (solo per feedback visivo)
-  usernameInput.value = username;
-  usernameInput.disabled = true;
-
-  // Abilita pulsante "Unisciti"
   document.getElementById("joinVoiceBtn").disabled = false;
+  document.getElementById("username").value = username;
 }
 
-// Decodifica token JWT Google
+// Decodifica token JWT di Google
 function parseJwt(token) {
   try {
     return JSON.parse(atob(token.split('.')[1]));
@@ -38,23 +26,65 @@ function parseJwt(token) {
   }
 }
 
-// ---------------- MICROFONO ----------------
-async function initMedia() {
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    console.log("🎤 Microfono attivo");
-  } catch (err) {
-    console.error("❌ Errore microfono:", err);
-    alert("Devi consentire l'accesso al microfono per usare il canale vocale.");
-  }
-}
-initMedia();
+// --- ENTRA NEL CANALE VOCALE ---
+document.getElementById("joinVoiceBtn").onclick = async () => {
+  if (!username) return alert("Devi prima accedere con Google!");
+  if (joined) return;
 
-// ---------------- CHAT TESTUALE ----------------
+  try {
+    await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    alert("Devi consentire l'accesso al microfono!");
+    return;
+  }
+
+  socket.emit("joinVoice", username);
+  joined = true;
+  document.getElementById("joinVoiceBtn").disabled = true;
+};
+
+// --- AGGIORNA LISTA UTENTI ---
+socket.on("updateUsers", (users) => {
+  const userList = document.getElementById("userList");
+  userList.innerHTML = "";
+  users.forEach((u) => {
+    const li = document.createElement("li");
+    li.textContent = u;
+    userList.appendChild(li);
+  });
+});
+let previousUsers = [];
+
+socket.on("updateUsers", (users) => {
+  const userList = document.getElementById("userList");
+  userList.innerHTML = "";
+  users.forEach((u) => {
+    const li = document.createElement("li");
+    li.textContent = u;
+    userList.appendChild(li);
+  });
+
+  // 🔊 Controllo entrate/uscite
+  if (previousUsers.length > 0) {
+    if (users.length > previousUsers.length) joinSound.play();
+    else if (users.length < previousUsers.length) leaveSound.play();
+  }
+  previousUsers = users;
+});
+
+
+
+// --- CHAT TESTUALE ---
+const sendBtn = document.getElementById("send");
+const msgInput = document.getElementById("msg");
+const messages = document.getElementById("messages");
+
 sendBtn.onclick = () => {
-  const text = input.value.trim();
-  if (text) socket.emit("chatMessage", text);
-  input.value = "";
+  const msg = msgInput.value.trim();
+  if (msg) {
+    socket.emit("chatMessage", msg);
+    msgInput.value = "";
+  }
 };
 
 socket.on("chatMessage", (data) => {
@@ -63,101 +93,79 @@ socket.on("chatMessage", (data) => {
   messages.appendChild(li);
 });
 
-// ---------------- CANALE VOCALE ----------------
-joinVoiceBtn.onclick = () => {
-  if (!username) return alert("Effettua prima l'accesso con Google!");
-  if (!joined) {
-    socket.emit("joinVoice", username);
-    joined = true;
-    joinVoiceBtn.disabled = true;
-  }
-};
+// --- GESTIONE ENTRATE / USCITE ---
+socket.on("new-user", () => {
+  joinSound.play();
+});
 
-// Aggiorna lista utenti
-socket.on("updateUsers", (usernames) => {
-  userList.innerHTML = "";
-  usernames.forEach(name => {
-    const li = document.createElement("li");
-    li.textContent = name;
-    userList.appendChild(li);
+socket.on("user-left", () => {
+  leaveSound.play();
+});
+
+// --- WEBRTC (base per vocale, già pronto) ---
+let peers = {};
+let localStream;
+
+socket.on("new-user", async (newUserId) => {
+  console.log("Nuovo utente nel canale:", newUserId);
+  createPeerConnection(newUserId, true);
+});
+
+socket.on("offer", async ({ sdp, from }) => {
+  const pc = createPeerConnection(from, false);
+  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit("answer", { target: from, sdp: pc.localDescription });
+});
+
+socket.on("answer", async ({ sdp, from }) => {
+  const pc = peers[from];
+  if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+});
+
+socket.on("ice-candidate", async ({ candidate, from }) => {
+  const pc = peers[from];
+  if (pc && candidate) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      console.error("Errore ICE:", err);
+    }
+  }
+});
+
+function createPeerConnection(targetId, initiator) {
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
-});
 
-// ---------------- WEBRTC ----------------
-socket.on("new-user", async (id) => {
-  const peer = createPeer(id);
-  peers[id] = peer;
-  localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
-});
+  peers[targetId] = pc;
 
-function createPeer(remoteId) {
-  const peer = new RTCPeerConnection();
-
-  peer.onicecandidate = e => {
-    if (e.candidate)
-      socket.emit("ice-candidate", { target: remoteId, candidate: e.candidate });
-  };
-
-  peer.ontrack = e => {
-    let audio = document.getElementById(`audio-${remoteId}`);
-    if (!audio) {
-      audio = document.createElement("audio");
-      audio.id = `audio-${remoteId}`;
-      audio.autoplay = true;
-      document.body.appendChild(audio);
-    }
-    audio.srcObject = e.streams[0];
-  };
-
-  peer.createOffer()
-    .then(offer => peer.setLocalDescription(offer))
-    .then(() => socket.emit("offer", { target: remoteId, sdp: peer.localDescription }));
-
-  return peer;
-}
-
-socket.on("offer", async (data) => {
-  const peer = new RTCPeerConnection();
-  peers[data.from] = peer;
-  localStream.getTracks().forEach(track => peer.addTrack(track, localStream));
-
-  peer.onicecandidate = e => {
-    if (e.candidate)
-      socket.emit("ice-candidate", { target: data.from, candidate: e.candidate });
-  };
-
-  peer.ontrack = e => {
-    let audio = document.getElementById(`audio-${data.from}`);
-    if (!audio) {
-      audio = document.createElement("audio");
-      audio.id = `audio-${data.from}`;
-      audio.autoplay = true;
-      document.body.appendChild(audio);
-    }
-    audio.srcObject = e.streams[0];
-  };
-
-  await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
-  const answer = await peer.createAnswer();
-  await peer.setLocalDescription(answer);
-  socket.emit("answer", { target: data.from, sdp: peer.localDescription });
-});
-
-socket.on("answer", async (data) => {
-  const peer = peers[data.from];
-  await peer.setRemoteDescription(new RTCSessionDescription(data.sdp));
-});
-
-socket.on("ice-candidate", (data) => {
-  const peer = peers[data.from];
-  if (peer) peer.addIceCandidate(new RTCIceCandidate(data.candidate));
-});
-
-socket.on("user-left", (id) => {
-  if (peers[id]) {
-    peers[id].close();
-    delete peers[id];
-    const audio = document.getElementById(`audio-${id}`);
-    if (audio) audio.remove();
+  if (localStream) {
+    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
   }
-});
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit("ice-candidate", { target: targetId, candidate: event.candidate });
+    }
+  };
+
+  pc.ontrack = (event) => {
+    const audio = document.createElement("audio");
+    audio.srcObject = event.streams[0];
+    audio.autoplay = true;
+    document.body.appendChild(audio);
+  };
+
+  if (initiator) {
+    pc.onnegotiationneeded = async () => {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("offer", { target: targetId, sdp: pc.localDescription });
+    };
+  }
+
+  return pc;
+}
