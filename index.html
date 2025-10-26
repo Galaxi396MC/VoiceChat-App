@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Chat vocale</title>
+  <style>body { font-family: league-spartan; }</style>
+</head>
+<body>
+  <h1>Chat</h1>
+  <ul id="messages"></ul>
+  <input id="m" autocomplete="off" /><button>Invia</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    document.querySelector("button").onclick = () => {
+      const msg = document.getElementById("m").value;
+      socket.emit("chatMessage", msg);
+      document.getElementById("m").value = "";
+    };
+    socket.on("chatMessage", (msg) => {
+      const li = document.createElement("li");
+      li.textContent = msg;
+      document.getElementById("messages").appendChild(li);
+    });
+  </script>
+</body>
+</html>

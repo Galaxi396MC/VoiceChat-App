@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>VoiceChat App</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>🎧 VoiceChat App</h1>
+
+  <div id="voice-channel">
+    <h2>Canale vocale: <b>Generale</b></h2>
+
+    <!-- 🔐 LOGIN GOOGLE -->
+    <div id="g_id_onload"
+         data-client_id="828831331108-k972muotm69snu0o9hjlsevhj329lo4k.apps.googleusercontent.com"
+         data-callback="handleCredentialResponse">
+    </div>
+
+    <div class="g_id_signin"
+         data-type="standard"
+         data-shape="rectangular"
+         data-theme="outline"
+         data-text="signin_with"
+         data-size="large"
+         data-logo_alignment="left">
+    </div>
+
+    <br/>
+
+    <!-- Mostra nome utente dopo login -->
+    <input id="username" placeholder="Nome utente Google" disabled />
+    <button id="joinVoiceBtn" disabled>Unisciti alla vocale</button>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <h3>Utenti nel canale:</h3>
+    <ul id="userList"></ul>
+  </div>
+
+  <hr />
+
+  <h2>💬 Chat testuale</h2>
+  <ul id="messages"></ul>
+  <input id="msg" placeholder="Scrivi un messaggio..." autocomplete="off" />
+  <button id="send">Invia</button>
+
+  <!-- Socket.io e logica client -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>
